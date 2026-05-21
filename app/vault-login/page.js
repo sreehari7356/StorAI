@@ -3,8 +3,9 @@ import React, { useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
 
 // Safe fallback credentials prevent the Next.js production worker from crashing
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder-key-12345';
+// This tells the app to look for your REAL Vercel dashboard keys first!
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || 'https://placeholder.supabase.co';
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || 'placeholder-key-12345';
 
 const supabase = createClient(supabaseUrl, supabaseKey);
 
