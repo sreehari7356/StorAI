@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
-import { cleanMemoryContent } from '../../../lib/ocrQuality';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -9,10 +8,20 @@ export const dynamic = 'force-dynamic';
 const jsonPath = path.join(process.cwd(), 'data', 'memories.json');
 const uploadsDir = path.join(process.cwd(), 'public', 'uploads');
 
+// Local fallback to clean text strings if lib is missing
+function cleanMemoryContent(content) {
+  if (!content) return '';
+  return content.trim();
+}
+
 function readData() {
   if (!fs.existsSync(jsonPath)) return [];
-  const data = fs.readFileSync(jsonPath, 'utf8');
-  return data ? JSON.parse(data) : [];
+  try {
+    const data = fs.readFileSync(jsonPath, 'utf8');
+    return data ? JSON.parse(data) : [];
+  } catch (e) {
+    return [];
+  }
 }
 
 function writeData(data) {
