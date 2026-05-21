@@ -2,12 +2,14 @@
 import React, { useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-);
+// Safe fallback credentials prevent the Next.js production worker from crashing
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder-key-12345';
+
+const supabase = createClient(supabaseUrl, supabaseKey);
 
 function BrandPanel() {
+// ... Leave everything else in the file exactly the same!
   const features = [
     { label: 'Offline OCR', desc: 'Index textbook pages in your browser' },
     { label: 'Full-text search', desc: 'Find any scanned passage instantly' },
