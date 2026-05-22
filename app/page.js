@@ -8,7 +8,7 @@ import { createClient } from '@supabase/supabase-js';
 
 // Initialize Supabase Client with strict direct fallbacks
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://ofqlhpadesxgoqckoipx.supabase.co';
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9mcWxocGFkZXN4Z29xY2tvaXB4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg4MzY5OTEsImV4cCI6MjA5NDQxMjk5MX0.3vBAyjpzi3zWKF54BD0ssEtxTev1XxzY1-uNtEMQeGY';
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'sb_publishable_yQEEd-DAV_Cj8yVCj_gfgg_2jdL8wua';
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 function StatsBar({ total, filtered, isSearching }) {
