@@ -1,14 +1,15 @@
 'use client';
 import React, { useState, useEffect, useMemo } from 'react';
+import { useRouter } from 'next/navigation';  // ← ADD THIS
 import Navbar from './components/Navbar';
 import MemoryCard from './components/MemoryCard';
 import AddMemoryModal from './components/AddMemoryModal';
 import { PlusIcon, XIcon } from './components/icons';
 import { createClient } from '@supabase/supabase-js';
 
-// Initialize Supabase Client with strict direct fallbacks
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://ofqlhpadesxgoqckoipx.supabase.co';
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'sb_publishable_yQEEd-DAV_Cj8yVCj_gfgg_2jdL8wua';
+// ✅ FIX 1 — Remove hardcoded keys, use env vars only
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 function StatsBar({ total, filtered, isSearching }) {
@@ -54,6 +55,7 @@ function MemoryListSkeleton() {
 }
 
 export default function Home() {
+  const router = useRouter();  // ← ADD THIS
   const [memories, setMemories] = useState([]);
   const [displayedMemories, setDisplayedMemories] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -64,11 +66,11 @@ export default function Home() {
   const [showWelcome, setShowWelcome] = useState(false);
   const [userId, setUserId] = useState(null);
 
-  // Auth form local states
   const [isSignUp, setIsSignUp] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [authError, setAuthError] = useState('');
+  const [authLoading, setAuthLoading] = useState(false); // ← ADD THIS
 
   const isSearching = searchQuery.trim().length > 0;
 
@@ -93,17 +95,14 @@ export default function Home() {
     };
   }, [showWelcome]);
 
-  // Fetch only the memories belonging to the authenticated user
   const fetchMemories = async (currentUserId) => {
     const activeUid = currentUserId || userId;
-    
     if (!activeUid) {
       setMemories([]);
       setDisplayedMemories([]);
       setLoading(false);
       return;
     }
-
     setLoading(true);
     try {
       const { data, error } = await supabase
@@ -113,7 +112,6 @@ export default function Home() {
         .order('date', { ascending: false });
 
       if (error) throw error;
-
       setMemories(data || []);
       if (!searchQuery.trim()) {
         setDisplayedMemories(data || []);
@@ -130,7 +128,6 @@ export default function Home() {
     }
   };
 
-  // Track authentication session
   useEffect(() => {
     const checkUser = async () => {
       try {
@@ -164,38 +161,69 @@ export default function Home() {
     return () => subscription.unsubscribe();
   }, []);
 
-  // Corrected Form submission handler with visual error handling
+  // ✅ FIX 2 & 3 — Corrected auth handler
   const handleAuthSubmit = async (e) => {
     e.preventDefault();
     setAuthError('');
-    
-    const formattedEmail = email.trim();
+    setAuthLoading(true);
+
+    const formattedEmail = email.trim().toLowerCase();
     if (!formattedEmail || !password) {
       setAuthError('Please enter both your email address and password.');
+      setAuthLoading(false);
       return;
     }
 
     try {
       if (isSignUp) {
-        const { data, error } = await supabase.auth.signUp({ 
-          email: formattedEmail, 
-          password 
+        // ── SIGNUP ──────────────────────────────────────
+        const { data, error } = await supabase.auth.signUp({
+          email: formattedEmail,
+          password,
         });
-        if (error) throw error;
-        alert('Sign up successful! Please check your email or attempt to sign in.');
-        setIsSignUp(false);
-      } else {
-        const { data, error } = await supabase.auth.signInWithPassword({ 
-          email: formattedEmail, 
-          password 
-        });
-        
+
         if (error) {
           setAuthError(error.message);
           return;
         }
 
+        // ✅ FIX: Check if email confirmation is needed
+        if (data.user && data.session) {
+          // Email confirmation is OFF — user is logged in immediately
+          sessionStorage.setItem('storai-welcome', '1');
+          setUserId(data.user.id);
+          fetchMemories(data.user.id);
+          setJustSignedIn(true);
+          setShowWelcome(true);
+        } else {
+          // Email confirmation is ON — tell user to check email
+          setAuthError('');
+          alert('Account created! Check your email to confirm, then sign in.');
+          setIsSignUp(false);
+          setPassword('');
+        }
+
+      } else {
+        // ── SIGNIN ──────────────────────────────────────
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email: formattedEmail,
+          password,
+        });
+
+        if (error) {
+          // ✅ FIX: Show friendly error messages
+          if (error.message.includes('Email not confirmed')) {
+            setAuthError('Please confirm your email first. Check your inbox.');
+          } else if (error.message.includes('Invalid login credentials')) {
+            setAuthError('Wrong email or password. Please try again.');
+          } else {
+            setAuthError(error.message);
+          }
+          return;
+        }
+
         if (data?.user) {
+          // ✅ FIX: Set session storage BEFORE state updates
           sessionStorage.setItem('storai-welcome', '1');
           setUserId(data.user.id);
           setJustSignedIn(true);
@@ -204,8 +232,10 @@ export default function Home() {
         }
       }
     } catch (err) {
-      console.error('Authentication Layer Exception:', err);
-      setAuthError(err.message || 'Authentication processing failed.');
+      console.error('Auth error:', err);
+      setAuthError(err.message || 'Something went wrong. Please try again.');
+    } finally {
+      setAuthLoading(false);
     }
   };
 
@@ -249,7 +279,6 @@ export default function Home() {
     }).length;
   }, [memories]);
 
-  // 🛡️ IF NOT LOGGED IN, RENDER SIGN IN INTERFACE DIRECTLY
   if (!userId && !loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-gradient-to-b from-premium-light via-surface to-surface px-6 py-12">
@@ -302,11 +331,15 @@ export default function Home() {
               </div>
             )}
 
+            {/* ✅ FIX: Button shows loading state */}
             <button
               type="submit"
-              className="w-full rounded-md bg-accent py-3 text-sm font-medium text-white shadow transition hover:bg-accent-hover"
+              disabled={authLoading}
+              className="w-full rounded-md bg-accent py-3 text-sm font-medium text-white shadow transition hover:bg-accent-hover disabled:opacity-60 disabled:cursor-not-allowed"
             >
-              {isSignUp ? 'Create Account' : 'Confirm & Sign In'}
+              {authLoading
+                ? 'Please wait...'
+                : isSignUp ? 'Create Account' : 'Confirm & Sign In'}
             </button>
           </form>
         </div>
@@ -424,11 +457,7 @@ export default function Home() {
                 <div
                   key={memory.id}
                   className={justSignedIn ? 'home-stagger-item' : ''}
-                  style={
-                    justSignedIn
-                      ? { animationDelay: `${0.52 + index * 0.07}s` }
-                      : undefined
-                  }
+                  style={justSignedIn ? { animationDelay: `${0.52 + index * 0.07}s` } : undefined}
                 >
                   <MemoryCard
                     id={memory.id}
