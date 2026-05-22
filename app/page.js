@@ -90,7 +90,14 @@ export default function Home() {
   // Fetch only the memories belonging to the authenticated user
   const fetchMemories = async (currentUserId) => {
     const activeUid = currentUserId || userId;
-    if (!activeUid) return;
+    
+    // SECURITY CATCH: If no user ID is active, clear out list data and exit safely!
+    if (!activeUid) {
+      setMemories([]);
+      setDisplayedMemories([]);
+      setLoading(false);
+      return;
+    }
 
     setLoading(true);
     try {
@@ -152,9 +159,9 @@ export default function Home() {
       setDisplayedMemories(memories);
       return;
     }
-    const query = query.toLowerCase().trim();
+    const queryStr = searchQuery.toLowerCase().trim();
     setDisplayedMemories(
-      memories.filter((item) => item.content?.toLowerCase().includes(query))
+      memories.filter((item) => item.content?.toLowerCase().includes(queryStr))
     );
   };
 
@@ -231,3 +238,95 @@ export default function Home() {
                 }}
                 className="w-full rounded-md border border-border bg-surface-raised px-4 py-3.5 text-sm text-ink shadow-sm outline-none transition placeholder:text-muted focus:border-premium-muted focus:ring-2 focus:ring-premium/50"
               />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={handleClearSearch}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 rounded p-0.5 text-ink-muted hover:text-ink"
+                  aria-label="Clear"
+                >
+                  <XIcon className="h-4 w-4" />
+                </button>
+              )}
+            </div>
+            <button
+              type="submit"
+              className="shrink-0 rounded-md border border-border bg-surface-raised px-6 py-3.5 text-sm font-medium tracking-wide text-ink shadow-sm transition hover:border-premium-muted hover:bg-premium/25"
+            >
+              Search
+            </button>
+          </form>
+
+          <button
+            type="button"
+            onClick={() => setIsModalOpen(true)}
+            className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md bg-accent px-6 py-3.5 text-sm font-medium tracking-wide text-white shadow-sm transition hover:bg-accent-hover"
+          >
+            <PlusIcon />
+            Add memory
+          </button>
+        </div>
+
+        <div className={justSignedIn ? 'home-anim-content' : ''}>
+          {!loading && memories.length > 0 && recentWeekCount > 0 && (
+            <p className="mb-5 text-xs tracking-wide text-ink-muted">
+              {recentWeekCount} added this week
+            </p>
+          )}
+
+          {loading ? (
+            <MemoryListSkeleton />
+          ) : displayedMemories.length === 0 ? (
+            <div className="rounded-lg border border-dashed border-border bg-surface-raised/80 px-8 py-16 text-center shadow-sm">
+              <p className="font-display text-xl text-ink">
+                {isSearching ? 'No matches' : 'No memories yet'}
+              </p>
+              <p className="mt-2 text-sm text-ink-muted">
+                {isSearching
+                  ? 'Try another phrase from your saved pages.'
+                  : 'Add a scanned page to build your vault.'}
+              </p>
+              {!isSearching && (
+                <button
+                  type="button"
+                  onClick={() => setIsModalOpen(true)}
+                  className="mt-8 inline-flex items-center gap-2 rounded-md bg-accent px-5 py-2.5 text-sm font-medium text-white hover:bg-accent-hover"
+                >
+                  <PlusIcon />
+                  Add your first memory
+                </button>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {displayedMemories.map((memory, index) => (
+                <div
+                  key={memory.id}
+                  className={justSignedIn ? 'home-stagger-item' : ''}
+                  style={
+                    justSignedIn
+                      ? { animationDelay: `${0.52 + index * 0.07}s` }
+                      : undefined
+                  }
+                >
+                  <MemoryCard
+                    id={memory.id}
+                    content={memory.content}
+                    date={memory.date}
+                    onDelete={() => fetchMemories(userId)}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <AddMemoryModal
+          isOpen={isModalOpen}
+          onClose={() => setIsModalOpen(false)}
+          onSave={handleSaveMemory}
+        />
+      </main>
+    </div>
+  );
+}
