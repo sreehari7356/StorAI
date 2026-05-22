@@ -4,6 +4,12 @@ import Navbar from './components/Navbar';
 import MemoryCard from './components/MemoryCard';
 import AddMemoryModal from './components/AddMemoryModal';
 import { PlusIcon, XIcon } from './components/icons';
+import { createClient } from '@supabase/supabase-js';
+
+// Initialize Supabase Client
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder-key-12345';
+const supabase = createClient(supabaseUrl, supabaseKey);
 
 function StatsBar({ total, filtered, isSearching }) {
   return (
@@ -56,6 +62,7 @@ export default function Home() {
   const [justSignedIn, setJustSignedIn] = useState(false);
   const [welcomeLeaving, setWelcomeLeaving] = useState(false);
   const [showWelcome, setShowWelcome] = useState(false);
+  const [userId, setUserId] = useState(null);
 
   const isSearching = searchQuery.trim().length > 0;
 
@@ -80,21 +87,29 @@ export default function Home() {
     };
   }, [showWelcome]);
 
-  const fetchMemories = async () => {
+  // Fetch only the memories belonging to the authenticated user
+  const fetchMemories = async (currentUserId) => {
+    const activeUid = currentUserId || userId;
+    if (!activeUid) return;
+
     setLoading(true);
     try {
-      const res = await fetch('/api/memories');
-      if (res.ok) {
-        const data = await res.json();
-        setMemories(data);
-        if (!searchQuery.trim()) {
-          setDisplayedMemories(data);
-        } else {
-          const q = searchQuery.toLowerCase().trim();
-          setDisplayedMemories(
-            data.filter((item) => item.content?.toLowerCase().includes(q))
-          );
-        }
+      const { data, error } = await supabase
+        .from('memories')
+        .select('*')
+        .eq('user_id', activeUid)
+        .order('date', { ascending: false });
+
+      if (error) throw error;
+
+      setMemories(data || []);
+      if (!searchQuery.trim()) {
+        setDisplayedMemories(data || []);
+      } else {
+        const q = searchQuery.toLowerCase().trim();
+        setDisplayedMemories(
+          (data || []).filter((item) => item.content?.toLowerCase().includes(q))
+        );
       }
     } catch (err) {
       console.error('Error loading memories:', err);
@@ -103,8 +118,32 @@ export default function Home() {
     }
   };
 
+  // Track authentication session
   useEffect(() => {
-    fetchMemories();
+    const checkUser = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
+        setUserId(session.user.id);
+        fetchMemories(session.user.id);
+      } else {
+        setLoading(false);
+      }
+    };
+
+    checkUser();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) {
+        setUserId(session.user.id);
+        fetchMemories(session.user.id);
+      } else {
+        setUserId(null);
+        setMemories([]);
+        setDisplayedMemories([]);
+      }
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
 
   const handleSearch = (e) => {
@@ -113,7 +152,7 @@ export default function Home() {
       setDisplayedMemories(memories);
       return;
     }
-    const query = searchQuery.toLowerCase().trim();
+    const query = query.toLowerCase().trim();
     setDisplayedMemories(
       memories.filter((item) => item.content?.toLowerCase().includes(query))
     );
@@ -125,13 +164,13 @@ export default function Home() {
   };
 
   const handleSaveMemory = async (text) => {
+    if (!userId) return;
     try {
-      const saveResponse = await fetch('/api/memories', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: text }),
-      });
-      if (saveResponse.ok) fetchMemories();
+      const { error } = await supabase
+        .from('memories')
+        .insert([{ content: text, user_id: userId, date: new Date().toISOString() }]);
+
+      if (!error) fetchMemories(userId);
     } catch (err) {
       console.error('Save failed:', err);
     }
@@ -167,7 +206,7 @@ export default function Home() {
 
         <div className={`home-hero-glow mb-10 border-b border-border-subtle pb-8 ${justSignedIn ? 'home-anim-hero' : ''}`}>
           <p className="font-display text-xl font-medium leading-snug text-ink sm:text-2xl">
-            StorAI — scan your study materials and find any page or topic before exams.
+            StoreAI — scan your study materials and find any page or topic before exams.
           </p>
         </div>
 
@@ -192,95 +231,3 @@ export default function Home() {
                 }}
                 className="w-full rounded-md border border-border bg-surface-raised px-4 py-3.5 text-sm text-ink shadow-sm outline-none transition placeholder:text-muted focus:border-premium-muted focus:ring-2 focus:ring-premium/50"
               />
-              {searchQuery && (
-                <button
-                  type="button"
-                  onClick={handleClearSearch}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 rounded p-0.5 text-ink-muted hover:text-ink"
-                  aria-label="Clear"
-                >
-                  <XIcon className="h-4 w-4" />
-                </button>
-              )}
-            </div>
-            <button
-              type="submit"
-              className="shrink-0 rounded-md border border-border bg-surface-raised px-6 py-3.5 text-sm font-medium tracking-wide text-ink shadow-sm transition hover:border-premium-muted hover:bg-premium/25"
-            >
-              Search
-            </button>
-          </form>
-
-          <button
-            type="button"
-            onClick={() => setIsModalOpen(true)}
-            className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md bg-accent px-6 py-3.5 text-sm font-medium tracking-wide text-white shadow-sm transition hover:bg-accent-hover"
-          >
-            <PlusIcon />
-            Add memory
-          </button>
-        </div>
-
-        <div className={justSignedIn ? 'home-anim-content' : ''}>
-          {!loading && memories.length > 0 && recentWeekCount > 0 && (
-            <p className="mb-5 text-xs tracking-wide text-ink-muted">
-              {recentWeekCount} added this week
-            </p>
-          )}
-
-          {loading ? (
-            <MemoryListSkeleton />
-          ) : displayedMemories.length === 0 ? (
-            <div className="rounded-lg border border-dashed border-border bg-surface-raised/80 px-8 py-16 text-center shadow-sm">
-              <p className="font-display text-xl text-ink">
-                {isSearching ? 'No matches' : 'No memories yet'}
-              </p>
-              <p className="mt-2 text-sm text-ink-muted">
-                {isSearching
-                  ? 'Try another phrase from your saved pages.'
-                  : 'Add a scanned page to build your vault.'}
-              </p>
-              {!isSearching && (
-                <button
-                  type="button"
-                  onClick={() => setIsModalOpen(true)}
-                  className="mt-8 inline-flex items-center gap-2 rounded-md bg-accent px-5 py-2.5 text-sm font-medium text-white hover:bg-accent-hover"
-                >
-                  <PlusIcon />
-                  Add your first memory
-                </button>
-              )}
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {displayedMemories.map((memory, index) => (
-                <div
-                  key={memory.id}
-                  className={justSignedIn ? 'home-stagger-item' : ''}
-                  style={
-                    justSignedIn
-                      ? { animationDelay: `${0.52 + index * 0.07}s` }
-                      : undefined
-                  }
-                >
-                  <MemoryCard
-                    id={memory.id}
-                    content={memory.content}
-                    date={memory.date}
-                    onDelete={fetchMemories}
-                  />
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <AddMemoryModal
-          isOpen={isModalOpen}
-          onClose={() => setIsModalOpen(false)}
-          onSave={handleSaveMemory}
-        />
-      </main>
-    </div>
-  );
-}
