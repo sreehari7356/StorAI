@@ -6,9 +6,9 @@ import AddMemoryModal from './components/AddMemoryModal';
 import { PlusIcon, XIcon } from './components/icons';
 import { createClient } from '@supabase/supabase-js';
 
-// Initialize Supabase Client
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder-key-12345';
+// Initialize Supabase Client with strict direct fallbacks
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://ofqlhpadesxgoqckoipx.supabase.co';
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9mcWxocGFkZXN4Z29xY2tvaXB4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg4MzY5OTEsImV4cCI6MjA5NDQxMjk5MX0.3vBAyjpzi3zWKF54BD0ssEtxTev1XxzY1-uNtEMQeGY';
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 function StatsBar({ total, filtered, isSearching }) {
@@ -91,7 +91,7 @@ export default function Home() {
   const fetchMemories = async (currentUserId) => {
     const activeUid = currentUserId || userId;
     
-    // SECURITY CATCH: If no user ID is active, clear out list data and exit safely!
+    // SECURITY CATCH: Stop fetching immediately if user logged out
     if (!activeUid) {
       setMemories([]);
       setDisplayedMemories([]);
