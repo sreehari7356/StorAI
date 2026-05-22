@@ -64,6 +64,12 @@ export default function Home() {
   const [showWelcome, setShowWelcome] = useState(false);
   const [userId, setUserId] = useState(null);
 
+  // Auth form local states
+  const [isSignUp, setIsSignUp] = useState(false);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [authError, setAuthError] = useState('');
+
   const isSearching = searchQuery.trim().length > 0;
 
   useEffect(() => {
@@ -91,7 +97,6 @@ export default function Home() {
   const fetchMemories = async (currentUserId) => {
     const activeUid = currentUserId || userId;
     
-    // SECURITY CATCH: Stop fetching immediately if user logged out
     if (!activeUid) {
       setMemories([]);
       setDisplayedMemories([]);
@@ -153,6 +158,38 @@ export default function Home() {
     return () => subscription.unsubscribe();
   }, []);
 
+  // Form submission handler
+  const handleAuthSubmit = async (e) => {
+    e.preventDefault();
+    setAuthError('');
+    
+    if (!email || !password) {
+      setAuthError('Please fill in all layout details.');
+      return;
+    }
+
+    try {
+      if (isSignUp) {
+        const { data, error } = await supabase.auth.signUp({ email, password });
+        if (error) throw error;
+        alert('Sign up successful! You can now log in.');
+        setIsSignUp(false);
+      } else {
+        const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+        if (error) throw error;
+        if (data?.user) {
+          setUserId(data.user.id);
+          sessionStorage.setItem('storai-welcome', '1');
+          setJustSignedIn(true);
+          setShowWelcome(true);
+          fetchMemories(data.user.id);
+        }
+      }
+    } catch (err) {
+      setAuthError(err.message);
+    }
+  };
+
   const handleSearch = (e) => {
     if (e) e.preventDefault();
     if (!searchQuery.trim()) {
@@ -192,6 +229,69 @@ export default function Home() {
       return !Number.isNaN(parsed.getTime()) && parsed >= weekAgo;
     }).length;
   }, [memories]);
+
+  // 🛡️ IF NOT LOGGED IN, RENDER SIGN IN INTERFACE DIRECTLY
+  if (!userId && !loading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-gradient-to-b from-premium-light via-surface to-surface px-6 py-12">
+        <div className="w-full max-w-md rounded-xl border border-border-subtle bg-white p-8 shadow-xl">
+          <div className="mb-6 text-center">
+            <h1 className="font-display text-3xl font-bold tracking-tight text-ink">StorAI</h1>
+            <p className="mt-2 text-sm text-ink-muted">Access your private document intelligence vault</p>
+          </div>
+
+          <div className="mb-6 flex border-b border-border-subtle">
+            <button
+              onClick={() => { setIsSignUp(false); setAuthError(''); }}
+              className={`flex-1 pb-3 text-sm font-medium transition ${!isSignUp ? 'border-b-2 border-accent text-accent' : 'text-ink-muted hover:text-ink'}`}
+            >
+              Sign In
+            </button>
+            <button
+              onClick={() => { setIsSignUp(true); setAuthError(''); }}
+              className={`flex-1 pb-3 text-sm font-medium transition ${isSignUp ? 'border-b-2 border-accent text-accent' : 'text-ink-muted hover:text-ink'}`}
+            >
+              Sign Up
+            </button>
+          </div>
+
+          <form onSubmit={handleAuthSubmit} className="space-y-4">
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wider text-ink-muted">Email Address</label>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="you@example.com"
+                className="mt-1 w-full rounded-md border border-border bg-surface px-4 py-2.5 text-sm outline-none focus:border-accent"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wider text-ink-muted">Password</label>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="••••••••"
+                className="mt-1 w-full rounded-md border border-border bg-surface px-4 py-2.5 text-sm outline-none focus:border-accent"
+              />
+            </div>
+
+            {authError && (
+              <p className="text-xs font-medium text-red-600">{authError}</p>
+            )}
+
+            <button
+              type="submit"
+              className="w-full rounded-md bg-accent py-3 text-sm font-medium text-white shadow transition hover:bg-accent-hover"
+            >
+              {isSignUp ? 'Create Account' : 'Confirm & Sign In'}
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
 
   const pageClass = justSignedIn ? 'home-after-login' : '';
 
