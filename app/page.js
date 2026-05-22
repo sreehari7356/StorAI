@@ -133,11 +133,16 @@ export default function Home() {
   // Track authentication session
   useEffect(() => {
     const checkUser = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.user) {
-        setUserId(session.user.id);
-        fetchMemories(session.user.id);
-      } else {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user) {
+          setUserId(session.user.id);
+          fetchMemories(session.user.id);
+        } else {
+          setLoading(false);
+        }
+      } catch (err) {
+        console.error('Session query failed:', err);
         setLoading(false);
       }
     };
@@ -152,41 +157,55 @@ export default function Home() {
         setUserId(null);
         setMemories([]);
         setDisplayedMemories([]);
+        setLoading(false);
       }
     });
 
     return () => subscription.unsubscribe();
   }, []);
 
-  // Form submission handler
+  // Corrected Form submission handler with visual error handling
   const handleAuthSubmit = async (e) => {
     e.preventDefault();
     setAuthError('');
     
-    if (!email || !password) {
-      setAuthError('Please fill in all layout details.');
+    const formattedEmail = email.trim();
+    if (!formattedEmail || !password) {
+      setAuthError('Please enter both your email address and password.');
       return;
     }
 
     try {
       if (isSignUp) {
-        const { data, error } = await supabase.auth.signUp({ email, password });
+        const { data, error } = await supabase.auth.signUp({ 
+          email: formattedEmail, 
+          password 
+        });
         if (error) throw error;
-        alert('Sign up successful! You can now log in.');
+        alert('Sign up successful! Please check your email or attempt to sign in.');
         setIsSignUp(false);
       } else {
-        const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-        if (error) throw error;
+        const { data, error } = await supabase.auth.signInWithPassword({ 
+          email: formattedEmail, 
+          password 
+        });
+        
+        if (error) {
+          setAuthError(error.message);
+          return;
+        }
+
         if (data?.user) {
-          setUserId(data.user.id);
           sessionStorage.setItem('storai-welcome', '1');
+          setUserId(data.user.id);
           setJustSignedIn(true);
           setShowWelcome(true);
           fetchMemories(data.user.id);
         }
       }
     } catch (err) {
-      setAuthError(err.message);
+      console.error('Authentication Layer Exception:', err);
+      setAuthError(err.message || 'Authentication processing failed.');
     }
   };
 
@@ -263,7 +282,7 @@ export default function Home() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="you@example.com"
-                className="mt-1 w-full rounded-md border border-border bg-surface px-4 py-2.5 text-sm outline-none focus:border-accent"
+                className="mt-1 w-full rounded-md border border-border bg-surface px-4 py-2.5 text-sm outline-none focus:border-accent text-black"
               />
             </div>
             <div>
@@ -273,12 +292,14 @@ export default function Home() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••"
-                className="mt-1 w-full rounded-md border border-border bg-surface px-4 py-2.5 text-sm outline-none focus:border-accent"
+                className="mt-1 w-full rounded-md border border-border bg-surface px-4 py-2.5 text-sm outline-none focus:border-accent text-black"
               />
             </div>
 
             {authError && (
-              <p className="text-xs font-medium text-red-600">{authError}</p>
+              <div className="p-3 bg-red-50 border border-red-200 rounded-md">
+                <p className="text-xs font-medium text-red-600">{authError}</p>
+              </div>
             )}
 
             <button
@@ -336,7 +357,7 @@ export default function Home() {
                   setSearchQuery(e.target.value);
                   if (!e.target.value.trim()) setDisplayedMemories(memories);
                 }}
-                className="w-full rounded-md border border-border bg-surface-raised px-4 py-3.5 text-sm text-ink shadow-sm outline-none transition placeholder:text-muted focus:border-premium-muted focus:ring-2 focus:ring-premium/50"
+                className="w-full rounded-md border border-border bg-surface-raised px-4 py-3.5 text-sm text-ink shadow-sm outline-none transition placeholder:text-muted focus:border-premium-muted focus:ring-2 focus:ring-premium/50 text-black"
               />
               {searchQuery && (
                 <button
