@@ -3,9 +3,9 @@ import React, { useState, useEffect } from 'react';  // ← added useEffect
 import { useRouter } from 'next/navigation';           // ← added router
 import { createClient } from '@supabase/supabase-js';
 
-// ✅ FIX 1 — No placeholder fallbacks, fail clearly if keys are missing
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+// ✅ FIXED: Hardcoded direct fallbacks added to prevent undefined client crashes
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://ofqlhpadesxgoqckoipx.supabase.co';
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9mcWxocGFkZXN4Z29xY2tvaXB4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg4MzY5OTEsImV4cCI6MjA5NDQxMjk5MX0.3vBAyjpzi3zWKF54BD0ssEtxTev1XxzY1-uNtEMQeGY';
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 function BrandPanel() {
@@ -88,7 +88,7 @@ function AuthForm({
     <div className="login-form-enter flex w-full flex-1 flex-col justify-center px-6 py-10 sm:px-12 lg:px-16">
       <div className="mx-auto w-full max-w-[380px]">
         <div className="mb-8">
-          <h2 className="font-display text-3xl font-semibold text-ink">
+          <h2 className="font-display text-3xl font-semibold text-ink text-black">
             {isSignUp ? 'Create account' : 'Welcome back'}
           </h2>
           <p className="mt-2 text-sm text-ink-muted">
@@ -120,7 +120,7 @@ function AuthForm({
                     aria-hidden
                   />
                 )}
-                <span className="relative">{label}</span>
+                <span className="relative text-black">{label}</span>
               </button>
             );
           })}
@@ -140,7 +140,7 @@ function AuthForm({
                 onChange={(e) => setEmail(e.target.value)}
                 required
                 autoComplete="email"
-                className="login-input-glow w-full rounded-lg border border-border bg-surface px-4 py-3.5 text-sm text-ink transition-all duration-300 outline-none focus:border-premium-muted"
+                className="login-input-glow w-full rounded-lg border border-border bg-surface px-4 py-3.5 text-sm text-black transition-all duration-300 outline-none focus:border-premium-muted"
               />
             </div>
 
@@ -156,13 +156,13 @@ function AuthForm({
                 onChange={(e) => setPassword(e.target.value)}
                 required
                 autoComplete={isSignUp ? 'new-password' : 'current-password'}
-                className="login-input-glow w-full rounded-lg border border-border bg-surface px-4 py-3.5 text-sm text-ink transition-all duration-300 outline-none focus:border-premium-muted"
+                className="login-input-glow w-full rounded-lg border border-border bg-surface px-4 py-3.5 text-sm text-black transition-all duration-300 outline-none focus:border-premium-muted"
               />
             </div>
 
             {errorMsg && (
               <p
-                className="rounded-lg border border-danger/20 bg-danger/10 px-4 py-3 text-xs text-danger login-mode-panel"
+                className="rounded-lg border border-danger/20 bg-danger/10 px-4 py-3 text-xs text-red-600 login-mode-panel font-medium"
                 role="alert"
               >
                 {errorMsg}
@@ -170,7 +170,7 @@ function AuthForm({
             )}
             {successMsg && (
               <p
-                className="rounded-lg border border-success/20 bg-success/10 px-4 py-3 text-xs text-success login-mode-panel"
+                className="rounded-lg border border-success/20 bg-success/10 px-4 py-3 text-xs text-green-600 login-mode-panel font-medium"
                 role="status"
               >
                 {successMsg}
@@ -194,13 +194,12 @@ function AuthForm({
             <button
               type="submit"
               disabled={loading || !confirmed}
-              className="login-btn-confirm group relative mt-2 w-full rounded-lg py-3.5 text-sm font-semibold tracking-wide shadow-md transition-all duration-300 enabled:hover:shadow-lg disabled:cursor-not-allowed"
+              className="login-btn-confirm group relative mt-2 w-full rounded-lg py-3.5 text-sm font-semibold tracking-wide shadow-md transition-all duration-300 bg-accent text-white enabled:hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-50"
             >
               <span className="relative z-10 flex items-center justify-center gap-2">
                 {loading && (
                   <span
-                    className="inline-block h-4 w-4 rounded-full border-2 border-white/30 border-t-white"
-                    style={{ animation: 'login-spin-slow 0.8s linear infinite' }}
+                    className="inline-block h-4 w-4 rounded-full border-2 border-white/30 border-t-white animate-spin"
                   />
                 )}
                 {loading
@@ -232,17 +231,15 @@ export default function VaultLogin() {
   const [confirmed, setConfirmed] = useState(false);
 
   // ✅ FIX 3 — Check if already logged in when page loads
-  // This fixes "after refresh it shows signin again"
   useEffect(() => {
     const checkSession = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (session) {
-        // Already logged in — go straight to dashboard
         router.replace('/');
       }
     };
     checkSession();
-  }, []);
+  }, [router]);
 
   const clearMessages = () => {
     setErrorMsg('');
@@ -260,18 +257,17 @@ export default function VaultLogin() {
     clearMessages();
     setLoading(true);
 
+    const formattedEmail = email.trim();
+
     try {
       if (isSignUp) {
-        // ✅ FIX 2 — Handle both email-confirm ON and OFF
-        const { data, error } = await supabase.auth.signUp({ email, password });
+        const { data, error } = await supabase.auth.signUp({ email: formattedEmail, password });
         if (error) throw error;
 
         if (data.session) {
-          // Email confirmation is OFF — user is instantly logged in
           sessionStorage.setItem('storai-welcome', '1');
           router.replace('/');
         } else {
-          // Email confirmation is ON — tell user to check inbox
           setSuccessMsg('Account created! Check your email to confirm, then sign in.');
           setIsSignUp(false);
           setPassword('');
@@ -279,14 +275,12 @@ export default function VaultLogin() {
         }
 
       } else {
-        // ✅ Signin — with clear friendly error messages
         const { data, error } = await supabase.auth.signInWithPassword({
-          email,
+          email: formattedEmail,
           password,
         });
 
         if (error) {
-          // Show friendly messages instead of raw Supabase errors
           if (error.message.includes('Email not confirmed')) {
             setErrorMsg('Please confirm your email first — check your inbox.');
           } else if (error.message.includes('Invalid login credentials')) {
@@ -299,7 +293,7 @@ export default function VaultLogin() {
 
         if (data.session) {
           sessionStorage.setItem('storai-welcome', '1');
-          router.replace('/');  // ✅ Clean redirect, no page flicker
+          router.replace('/');  // ✅ Dynamic router context navigation target push
         }
       }
     } catch (err) {
