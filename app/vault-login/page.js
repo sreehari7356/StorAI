@@ -88,7 +88,7 @@ function AuthForm({
     <div className="login-form-enter flex w-full flex-1 flex-col justify-center px-6 py-10 sm:px-12 lg:px-16">
       <div className="mx-auto w-full max-w-[380px]">
         <div className="mb-8">
-          <h2 className="font-display text-3xl font-semibold text-ink text-black">
+          <h2 className="font-display text-3xl font-semibold text-black">
             {isSignUp ? 'Create account' : 'Welcome back'}
           </h2>
           <p className="mt-2 text-sm text-ink-muted">
@@ -126,91 +126,89 @@ function AuthForm({
           })}
         </div>
 
-        <div key={isSignUp ? 'signup' : 'signin'} className="login-mode-panel">
-          <form onSubmit={onSubmit} className="space-y-5">
-            <div className="group">
-              <label htmlFor="email" className="mb-2 block text-xs font-medium uppercase tracking-wider text-ink-muted">
-                Email address
-              </label>
-              <input
-                id="email"
-                type="email"
-                placeholder="you@example.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                autoComplete="email"
-                className="login-input-glow w-full rounded-lg border border-border bg-surface px-4 py-3.5 text-sm text-black transition-all duration-300 outline-none focus:border-premium-muted"
-              />
-            </div>
-
-            <div className="group">
-              <label htmlFor="password" className="mb-2 block text-xs font-medium uppercase tracking-wider text-ink-muted">
-                Password
-              </label>
-              <input
-                id="password"
-                type="password"
-                placeholder="Enter your password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                autoComplete={isSignUp ? 'new-password' : 'current-password'}
-                className="login-input-glow w-full rounded-lg border border-border bg-surface px-4 py-3.5 text-sm text-black transition-all duration-300 outline-none focus:border-premium-muted"
-              />
-            </div>
-
-            {errorMsg && (
-              <p
-                className="rounded-lg border border-danger/20 bg-danger/10 px-4 py-3 text-xs text-red-600 login-mode-panel font-medium"
-                role="alert"
-              >
-                {errorMsg}
-              </p>
-            )}
-            {successMsg && (
-              <p
-                className="rounded-lg border border-success/20 bg-success/10 px-4 py-3 text-xs text-green-600 login-mode-panel font-medium"
-                role="status"
-              >
-                {successMsg}
-              </p>
-            )}
-
-            <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-border-subtle bg-premium-light/50 px-4 py-3">
-              <input
-                type="checkbox"
-                checked={confirmed}
-                onChange={(e) => setConfirmed(e.target.checked)}
-                className="mt-0.5 h-4 w-4 shrink-0 rounded border-border text-accent focus:ring-premium/50"
-              />
-              <span className="text-xs leading-relaxed text-ink-muted">
-                {isSignUp
-                  ? 'I confirm that I want to create a StorAI vault account and store my documents securely.'
-                  : 'I confirm that I am signing in to access my private StorAI memory vault.'}
-              </span>
+        {/* ⚡ MOVE THE FORM WRAPPER HERE TO CAPTURE ALL INTERACTION ELEMENTS */}
+        <form onSubmit={onSubmit} className="space-y-5">
+          <div className="group">
+            <label htmlFor="email" className="mb-2 block text-xs font-medium uppercase tracking-wider text-ink-muted">
+              Email address
             </label>
+            <input
+              id="email"
+              type="email"
+              placeholder="you@example.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+              autoComplete="email"
+              className="login-input-glow w-full rounded-lg border border-border bg-surface px-4 py-3.5 text-sm text-black transition-all duration-300 outline-none focus:border-premium-muted"
+            />
+          </div>
 
-            <button
-              type="submit"
-              disabled={loading || !confirmed}
-              className="login-btn-confirm group relative mt-2 w-full rounded-lg py-3.5 text-sm font-semibold tracking-wide shadow-md transition-all duration-300 bg-accent text-white enabled:hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-50"
+          <div className="group">
+            <label htmlFor="password" className="mb-2 block text-xs font-medium uppercase tracking-wider text-ink-muted">
+              Password
+            </label>
+            <input
+              id="password"
+              type="password"
+              placeholder="Enter your password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              autoComplete={isSignUp ? 'new-password' : 'current-password'}
+              className="login-input-glow w-full rounded-lg border border-border bg-surface px-4 py-3.5 text-sm text-black transition-all duration-300 outline-none focus:border-premium-muted"
+            />
+          </div>
+
+          {errorMsg && (
+            <p
+              className="rounded-lg border border-danger/20 bg-danger/10 px-4 py-3 text-xs text-red-600 font-medium shadow-sm"
+              role="alert"
             >
-              <span className="relative z-10 flex items-center justify-center gap-2">
-                {loading && (
-                  <span
-                    className="inline-block h-4 w-4 rounded-full border-2 border-white/30 border-t-white animate-spin"
-                  />
-                )}
-                {loading
-                  ? 'Please wait…'
-                  : isSignUp
-                    ? 'Confirm & Create Account'
-                    : 'Confirm & Sign In'}
-              </span>
-            </button>
-          </form>
-        </div>
+              {errorMsg}
+            </p>
+          )}
+          {successMsg && (
+            <p
+              className="rounded-lg border border-success/20 bg-success/10 px-4 py-3 text-xs text-green-600 font-medium shadow-sm"
+              role="status"
+            >
+              {successMsg}
+            </p>
+          )}
+
+          <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-border-subtle bg-premium-light/50 px-4 py-3">
+            <input
+              type="checkbox"
+              checked={confirmed}
+              onChange={(e) => setConfirmed(e.target.checked)}
+              className="mt-0.5 h-4 w-4 shrink-0 rounded border-border text-accent focus:ring-premium/50"
+            />
+            <span className="text-xs leading-relaxed text-ink-muted">
+              {isSignUp
+                ? 'I confirm that I want to create a StorAI vault account and store my documents securely.'
+                : 'I confirm that I am signing in to access my private StorAI memory vault.'}
+            </span>
+          </label>
+
+          {/* ⚡ NATURALLY TRIGGER THE FORM IN THE SAME LAYOUT CONTEXT */}
+          <button
+            type="submit"
+            disabled={loading || !confirmed}
+            className="login-btn-confirm group relative mt-2 w-full rounded-lg py-3.5 text-sm font-semibold tracking-wide shadow-md transition-all duration-300 bg-accent text-white enabled:hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <span className="relative z-10 flex items-center justify-center gap-2">
+              {loading && (
+                <span className="inline-block h-4 w-4 rounded-full border-2 border-white/30 border-t-white animate-spin" />
+              )}
+              {loading
+                ? 'Please wait…'
+                : isSignUp
+                  ? 'Confirm & Create Account'
+                  : 'Confirm & Sign In'}
+            </span>
+          </button>
+        </form>
 
         <p className="mt-8 text-center text-xs leading-relaxed text-ink-muted">
           By continuing, you agree to keep your vault private and secure.
