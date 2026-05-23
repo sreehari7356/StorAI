@@ -1,16 +1,14 @@
 'use client';
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';  // ← added useEffect
+import { useRouter } from 'next/navigation';           // ← added router
 import { createClient } from '@supabase/supabase-js';
 
-// Safe fallback credentials prevent the Next.js production worker from crashing
-// This tells the app to look for your REAL Vercel dashboard keys first!
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || 'https://placeholder.supabase.co';
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || 'placeholder-key-12345';
-
+// ✅ FIX 1 — No placeholder fallbacks, fail clearly if keys are missing
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 function BrandPanel() {
-// ... Leave everything else in the file exactly the same!
   const features = [
     { label: 'Offline OCR', desc: 'Index textbook pages in your browser' },
     { label: 'Full-text search', desc: 'Find any scanned passage instantly' },
@@ -19,7 +17,6 @@ function BrandPanel() {
 
   return (
     <section className="login-bg-mesh relative flex min-h-[38vh] flex-col justify-between overflow-hidden p-8 sm:min-h-0 sm:flex-1 sm:p-12 lg:p-14">
-      {/* Decorative shapes — soft rectangles, not lens icons */}
       <div
         className="login-blob-1 pointer-events-none absolute -right-16 top-1/4 h-48 w-72 rounded-[3rem] bg-white/25"
         aria-hidden
@@ -101,7 +98,6 @@ function AuthForm({
           </p>
         </div>
 
-        {/* Animated mode toggle */}
         <div className="mb-8 flex rounded-lg border border-border-subtle bg-surface-overlay p-1">
           {['Sign in', 'Sign up'].map((label) => {
             const signUpMode = label === 'Sign up';
@@ -226,6 +222,7 @@ function AuthForm({
 }
 
 export default function VaultLogin() {
+  const router = useRouter();  // ✅ FIX 3
   const [isSignUp, setIsSignUp] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -233,6 +230,19 @@ export default function VaultLogin() {
   const [successMsg, setSuccessMsg] = useState('');
   const [loading, setLoading] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
+
+  // ✅ FIX 3 — Check if already logged in when page loads
+  // This fixes "after refresh it shows signin again"
+  useEffect(() => {
+    const checkSession = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        // Already logged in — go straight to dashboard
+        router.replace('/');
+      }
+    };
+    checkSession();
+  }, []);
 
   const clearMessages = () => {
     setErrorMsg('');
@@ -252,18 +262,48 @@ export default function VaultLogin() {
 
     try {
       if (isSignUp) {
-        const { error } = await supabase.auth.signUp({ email, password });
+        // ✅ FIX 2 — Handle both email-confirm ON and OFF
+        const { data, error } = await supabase.auth.signUp({ email, password });
         if (error) throw error;
-        setSuccessMsg('Account created successfully. You can sign in now.');
-        setIsSignUp(false);
+
+        if (data.session) {
+          // Email confirmation is OFF — user is instantly logged in
+          sessionStorage.setItem('storai-welcome', '1');
+          router.replace('/');
+        } else {
+          // Email confirmation is ON — tell user to check inbox
+          setSuccessMsg('Account created! Check your email to confirm, then sign in.');
+          setIsSignUp(false);
+          setPassword('');
+          setConfirmed(false);
+        }
+
       } else {
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
-        if (error) throw error;
-        sessionStorage.setItem('storai-welcome', '1');
-        window.location.href = '/';
+        // ✅ Signin — with clear friendly error messages
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email,
+          password,
+        });
+
+        if (error) {
+          // Show friendly messages instead of raw Supabase errors
+          if (error.message.includes('Email not confirmed')) {
+            setErrorMsg('Please confirm your email first — check your inbox.');
+          } else if (error.message.includes('Invalid login credentials')) {
+            setErrorMsg('Wrong email or password. Please try again.');
+          } else {
+            setErrorMsg(error.message);
+          }
+          return;
+        }
+
+        if (data.session) {
+          sessionStorage.setItem('storai-welcome', '1');
+          router.replace('/');  // ✅ Clean redirect, no page flicker
+        }
       }
     } catch (err) {
-      setErrorMsg(err.message);
+      setErrorMsg(err.message || 'Something went wrong. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -272,11 +312,8 @@ export default function VaultLogin() {
   return (
     <main className="flex min-h-screen flex-col bg-surface lg:flex-row">
       <BrandPanel />
-
       <section className="relative flex flex-1 flex-col bg-surface-raised lg:border-l lg:border-border-subtle">
-        {/* Subtle top accent line */}
         <div className="absolute left-0 right-0 top-0 h-1 bg-gradient-to-r from-transparent via-premium to-transparent lg:hidden" />
-
         <AuthForm
           isSignUp={isSignUp}
           setIsSignUp={handleModeChange}
