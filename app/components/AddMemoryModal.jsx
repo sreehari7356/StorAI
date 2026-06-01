@@ -1,261 +1,198 @@
 'use client';
 import React, { useState, useRef, useEffect } from 'react';
 import { XIcon } from './icons';
-import { isPdfFile, isImageFile, extractTextFromFile } from '../../lib/fileText';
-import { recognizeImageFromFile } from '../../lib/imageRecognition';
-import { sanitizeOcrForStorage } from '../../lib/ocrQuality';
-
-const ACCEPTED = 'image/png,image/jpeg,image/jpg,image/webp,image/gif,application/pdf,.pdf';
 
 export default function AddMemoryModal({ isOpen, onClose, onSave }) {
-  const [noteText, setNoteText] = useState('');
+  const [text, setText] = useState('');
   const [file, setFile] = useState(null);
-  const [preview, setPreview] = useState(null);
-  const [isUploading, setIsUploading] = useState(false);
-  const [statusMessage, setStatusMessage] = useState('');
-  const [dragOver, setDragOver] = useState(false);
+  const [imagePreview, setImagePreview] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+  const [model, setModel] = useState(null);
+  const [modelLoading, setModelLoading] = useState(false);
   const fileInputRef = useRef(null);
+  const hiddenImgRef = useRef(null);
 
+  // 🧠 Load TensorFlow.js and MobileNet
   useEffect(() => {
-    if (!file) {
-      setPreview(null);
-      return;
-    }
-    if (isImageFile(file)) {
-      const url = URL.createObjectURL(file);
-      setPreview({ type: 'image', url });
-      return () => URL.revokeObjectURL(url);
-    }
-    setPreview({ type: 'pdf', name: file.name });
-  }, [file]);
+    if (!isOpen) return;
+
+    const loadMlModels = async () => {
+      if (window.mobilenetInstance || window.mobilenet) {
+        setModel(window.mobilenetInstance || window.mobilenet);
+        return;
+      }
+      
+      setModelLoading(true);
+      try {
+        const tfscript = document.createElement('script');
+        tfscript.src = "https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.20.0/dist/tf.min.js";
+        document.head.appendChild(tfscript);
+
+        tfscript.onload = () => {
+          const nscript = document.createElement('script');
+          nscript.src = "https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@2.1.1/dist/mobilenet.min.js";
+          document.head.appendChild(nscript);
+          
+          nscript.onload = async () => {
+            const loadedModel = await window.mobilenet.load();
+            window.mobilenetInstance = loadedModel;
+            setModel(loadedModel);
+            setModelLoading(false);
+          };
+        };
+      } catch (err) {
+        console.error("TensorFlow initialization error:", err);
+        setModelLoading(false);
+      }
+    };
+
+    loadMlModels();
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
-  const handleFile = (selected) => {
-    if (!selected) return;
-    const ok =
-      isImageFile(selected) ||
-      isPdfFile(selected) ||
-      selected.name.toLowerCase().endsWith('.pdf');
-    if (!ok) {
-      alert('Please choose an image (PNG, JPG) or PDF file.');
-      return;
+  const handleFileChange = (e) => {
+    if (e.target.files && e.target.files[0]) {
+      const selectedFile = e.target.files[0];
+      setFile(selectedFile);
+      const previewUrl = URL.createObjectURL(selectedFile);
+      setImagePreview(previewUrl);
     }
-    setFile(selected);
+  };
+
+  const handleRemoveFile = () => {
+    setFile(null);
+    setImagePreview('');
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setIsUploading(true);
-    setStatusMessage('Uploading file…');
+    // 🛑 SAFETY GATE: Prevent uploading if file is selected but model isn't ready
+    if (file && !model && !window.mobilenetInstance) {
+      alert("Please wait a moment for the AI Engine to finish initializing before committing.");
+      return;
+    }
+    if (!text.trim() && !file) return;
+
+    setIsSaving(true);
+    let detectedLabels = '';
 
     try {
-      let textInput = noteText.trim();
-      let finalPayload = textInput;
-
-      if (file) {
-        const formData = new FormData();
-        formData.append('file', file);
-
-        const uploadRes = await fetch('/api/upload', {
-          method: 'POST',
-          body: formData,
-          headers: { Accept: 'application/json' },
-          cache: 'no-store',
-        });
-        if (!uploadRes.ok) throw new Error('Upload failed.');
-        const uploadData = await uploadRes.json();
-
-        let scannedText = '';
-        try {
-          scannedText = await extractTextFromFile(file, setStatusMessage);
-        } catch (ocrErr) {
-          console.error('OCR failed:', ocrErr);
-        }
-
-        if (!scannedText && uploadData.extractedText) {
-          scannedText = uploadData.extractedText;
-        }
-        scannedText = sanitizeOcrForStorage(scannedText);
-
-        let vision = null;
-        if (isImageFile(file) || isPdfFile(file)) {
+      if (file && file.type.startsWith('image/') && hiddenImgRef.current) {
+        const activeModel = model || window.mobilenetInstance;
+        if (activeModel) {
           try {
-            vision = await recognizeImageFromFile(file, setStatusMessage);
-          } catch (visionErr) {
-            console.error('Vision recognition failed:', visionErr);
+            const predictions = await activeModel.classify(hiddenImgRef.current);
+            detectedLabels = predictions
+              .map(p => p.className.toLowerCase())
+              .join(', ');
+            console.log("🧠 TensorFlow Tags Found:", detectedLabels);
+          } catch (modelErr) {
+            console.error("TensorFlow classification failed:", modelErr);
           }
         }
-
-        const fileNameTags = file.name.toLowerCase().replace(/[-_.]/g, ' ');
-        const typeLabel = isPdfFile(file) ? 'PDF Document' : 'Image Attachment';
-
-        finalPayload = textInput ? `${textInput}\n\n` : '';
-        finalPayload += `[🖼️ Local Attachment: ${uploadData.fileUrl}]`;
-        finalPayload += `\n📎 [File Type]: ${typeLabel}`;
-
-        if (scannedText) {
-          finalPayload += `\n\n🔍 [Scanned Text Content]:\n${scannedText}`;
-        }
-
-        if (vision?.summary) {
-          finalPayload += `\n\n🎯 [Image Recognition]:\n${vision.summary}`;
-        } else if (isImageFile(file)) {
-          finalPayload += `\n\n🎯 [Image Recognition]: (No objects detected)`;
-        }
-
-        const visionTags = vision?.searchTerms ? ` ${vision.searchTerms}` : '';
-        finalPayload += `\n\n🏷️ [Search Tags]: ${fileNameTags} ${file.name} pdf document scan${visionTags}`;
       }
 
-      await onSave(finalPayload);
-      setNoteText('');
+      await onSave(text, file, detectedLabels);
+      setText('');
       setFile(null);
+      setImagePreview('');
       onClose();
     } catch (err) {
-      alert(`Could not save: ${err.message}`);
+      console.error('Failed to submit modal:', err);
     } finally {
-      setIsUploading(false);
-      setStatusMessage('');
+      setIsSaving(false);
     }
   };
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-ink/20 p-4 backdrop-blur-[2px] sm:items-center"
-      onClick={onClose}
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="add-memory-title"
-    >
-      <form
-        onSubmit={handleSubmit}
-        onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-lg rounded-lg border border-border bg-surface-raised shadow-xl"
-      >
-        <div className="flex items-center justify-between border-b border-border-subtle bg-premium/20 px-6 py-4">
-          <div>
-            <h2 id="add-memory-title" className="font-display text-xl font-semibold text-ink">
-              New memory
-            </h2>
-            <p className="mt-0.5 text-xs text-ink-muted">OCR text + visual recognition (e.g. dog, car)</p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded p-2 text-ink-muted hover:bg-premium/40 hover:text-ink"
-            aria-label="Close"
-          >
-            <XIcon />
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-fadeIn">
+      <div className="w-full max-w-lg rounded-xl border border-border-subtle bg-surface-raised p-6 shadow-xl">
+        
+        {imagePreview && (
+          <img 
+            ref={hiddenImgRef}
+            src={imagePreview} 
+            alt="hidden processor" 
+            className="hidden" 
+            crossOrigin="anonymous"
+          />
+        )}
+
+        <div className="mb-5 flex items-center justify-between">
+          <h3 className="font-display text-lg font-medium text-ink">Index New Document Reference</h3>
+          <button type="button" onClick={onClose} className="rounded p-1 text-ink-muted hover:bg-premium-light hover:text-ink transition">
+            <XIcon className="h-5 w-5" />
           </button>
         </div>
 
-        <div className="flex flex-col gap-4 p-6">
+        <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label htmlFor="memory-note" className="mb-1.5 block text-xs font-medium uppercase tracking-wider text-ink-muted">
-              Notes <span className="normal-case tracking-normal">(optional)</span>
+            <label htmlFor="modal-content" className="mb-2 block text-xs font-medium uppercase tracking-wider text-ink-muted">
+              Document Text / Notes Description
             </label>
             <textarea
-              id="memory-note"
-              placeholder="Chapter, subject, or reminder…"
-              value={noteText}
-              onChange={(e) => setNoteText(e.target.value)}
-              rows={3}
-              className="w-full resize-none rounded-md border border-border bg-surface px-3 py-2.5 text-sm text-ink outline-none focus:border-premium-muted focus:ring-2 focus:ring-premium/40"
+              id="modal-content"
+              rows={4}
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              placeholder="Enter descriptive metadata notes..."
+              className="w-full rounded-md border border-border bg-white px-4 py-3 text-sm text-black outline-none"
+              required={!file}
             />
           </div>
 
-          <div
-            onDragOver={(e) => {
-              e.preventDefault();
-              setDragOver(true);
-            }}
-            onDragLeave={() => setDragOver(false)}
-            onDrop={(e) => {
-              e.preventDefault();
-              setDragOver(false);
-              handleFile(e.dataTransfer.files?.[0]);
-            }}
-            onClick={() => fileInputRef.current?.click()}
-            className={`cursor-pointer rounded-md border-2 border-dashed px-6 py-8 text-center transition ${
-              dragOver
-                ? 'border-premium-muted bg-premium/40'
-                : 'border-border bg-premium-light/40 hover:border-premium-muted hover:bg-premium/25'
-            }`}
-          >
-            <input
-              type="file"
-              ref={fileInputRef}
-              accept={ACCEPTED}
-              onChange={(e) => handleFile(e.target.files?.[0])}
-              className="hidden"
-            />
-            {preview?.type === 'image' ? (
-              <div className="flex flex-col items-center gap-3">
-                <img src={preview.url} alt="" className="max-h-36 rounded-md border border-border-subtle object-contain" />
-                <p className="text-xs text-ink-muted">{file?.name}</p>
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setFile(null);
-                  }}
-                  className="text-xs font-medium text-accent hover:underline"
-                >
-                  Choose different file
-                </button>
-              </div>
-            ) : preview?.type === 'pdf' ? (
-              <div className="flex flex-col items-center gap-3">
-                <div className="flex h-24 w-20 items-center justify-center rounded-md border border-border bg-premium/30">
-                  <span className="text-xs font-bold uppercase tracking-wider text-accent">PDF</span>
-                </div>
-                <p className="text-xs text-ink-muted">{preview.name}</p>
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setFile(null);
-                  }}
-                  className="text-xs font-medium text-accent hover:underline"
-                >
-                  Choose different file
-                </button>
-              </div>
-            ) : (
-              <>
-                <p className="text-sm font-medium text-ink">Drop a screenshot, PDF, or click to browse</p>
-                <p className="mt-1 text-xs text-ink-muted">PNG, JPG, PDF — OCR + object recognition in browser</p>
-              </>
-            )}
-          </div>
-
-          {isUploading && (
-            <div className="flex items-center gap-2 rounded-md bg-premium/50 px-3 py-2">
-              <span className="h-3 w-3 animate-spin rounded-full border-2 border-accent border-t-transparent" />
-              <p className="text-xs font-medium text-ink-muted">{statusMessage}</p>
+          <div className="rounded-lg border border-dashed border-border bg-surface px-4 py-4">
+            <div className="flex justify-between items-center mb-2">
+              <label className="block text-xs font-medium uppercase tracking-wider text-ink-muted">
+                Upload Image Asset Reference
+              </label>
+              {modelLoading && (
+                <span className="text-[10px] animate-pulse text-accent font-medium font-mono">
+                  Loading AI Engine...
+                </span>
+              )}
+              {!modelLoading && model && (
+                <span className="text-[10px] text-emerald-600 font-medium font-mono">
+                  ● AI Ready
+                </span>
+              )}
             </div>
-          )}
-        </div>
+            
+            <div className="mt-1 flex flex-col items-start gap-2">
+              <input
+                type="file"
+                accept="image/*"
+                ref={fileInputRef}
+                onChange={handleFileChange}
+                className="w-full text-xs text-ink-muted file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-premium-light file:text-ink file:cursor-pointer"
+              />
+              {file && (
+                <div className="w-full flex items-center justify-between mt-2 rounded bg-accent/10 px-3 py-1.5 text-xs text-accent font-medium">
+                  <span className="truncate">📎 Attached: {file.name}</span>
+                  <button type="button" onClick={handleRemoveFile} className="text-ink-muted hover:text-danger font-bold text-sm">×</button>
+                </div>
+              )}
+            </div>
+          </div>
 
-        <div className="flex gap-3 border-t border-border-subtle px-6 py-4">
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={isUploading}
-            className="flex-1 rounded-md border border-border py-2.5 text-sm font-medium text-ink-muted transition hover:bg-premium-light disabled:opacity-50"
-          >
-            Cancel
-          </button>
-          <button
-            type="submit"
-            disabled={isUploading || (!noteText.trim() && !file)}
-            className="flex-1 rounded-md bg-accent py-2.5 text-sm font-medium text-white transition hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            {isUploading ? 'Processing…' : 'Save memory'}
-          </button>
-        </div>
-      </form>
+          <div className="flex justify-end gap-3 pt-2">
+            <button type="button" onClick={onClose} disabled={isSaving} className="rounded-md border border-border bg-white px-4 py-2.5 text-xs font-medium text-ink">
+              Cancel
+            </button>
+            <button
+              type="submit"
+              // 🛑 DISABLED UNTIL AI IS FULLY READY FOR SCANNING
+              disabled={isSaving || modelLoading || (!text.trim() && !file)}
+              className="rounded-md bg-[#2d4a5f] px-5 py-2.5 text-xs font-medium tracking-wide text-white shadow hover:bg-[#3a5f78] disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {isSaving ? 'Running AI Scan...' : 'Commit to Storage Vault'}
+            </button>
+          </div>
+        </form>
+
+      </div>
     </div>
   );
 }

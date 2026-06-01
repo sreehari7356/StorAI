@@ -1,104 +1,68 @@
 import { NextResponse } from 'next/server';
-import fs from 'fs';
-import path from 'path';
+import { createClient } from '@supabase/supabase-js';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const jsonPath = path.join(process.cwd(), 'data', 'memories.json');
-const uploadsDir = path.join(process.cwd(), 'public', 'uploads');
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+);
 
-// Local fallback to clean text strings if lib is missing
-function cleanMemoryContent(content) {
-  if (!content) return '';
-  return content.trim();
-}
-
-function readData() {
-  if (!fs.existsSync(jsonPath)) return [];
-  try {
-    const data = fs.readFileSync(jsonPath, 'utf8');
-    return data ? JSON.parse(data) : [];
-  } catch (e) {
-    return [];
-  }
-}
-
-function writeData(data) {
-  const dirPath = path.dirname(jsonPath);
-  if (!fs.existsSync(dirPath)) {
-    fs.mkdirSync(dirPath, { recursive: true });
-  }
-  fs.writeFileSync(jsonPath, JSON.stringify(data, null, 2), 'utf8');
-}
-
-// GET: Fetch all memory entries securely
-export async function GET() {
-  const memories = readData();
-  let changed = false;
-  const cleaned = memories.map((item) => {
-    const content = cleanMemoryContent(item.content);
-    if (content !== item.content) changed = true;
-    return { ...item, content };
-  });
-  if (changed) writeData(cleaned);
-  return NextResponse.json(cleaned);
-}
-
-// POST: Save fresh text and local image paths
-export async function POST(request) {
-  try {
-    const { content } = await request.json();
-    const memories = readData();
-
-    const newEntry = {
-      id: Date.now().toString(),
-      content: cleanMemoryContent(content),
-      date: new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
-    };
-    
-    memories.unshift(newEntry);
-    writeData(memories);
-    return NextResponse.json(newEntry);
-  } catch (err) {
-    return NextResponse.json({ error: 'Failed to write vault entry' }, { status: 500 });
-  }
-}
-
-// DELETE: Safely erase data strings and physical drive files
 export async function DELETE(request) {
   try {
+    const userId = request.headers.get('x-user-id');
+    if (!userId) {
+      return NextResponse.json({ error: 'Unauthorized — no user ID provided.' }, { status: 401 });
+    }
+
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
-    
-    if (!id) return NextResponse.json({ error: 'Missing ID' }, { status: 400 });
+    if (!id) {
+      return NextResponse.json({ error: 'Missing memory target parameter identifier.' }, { status: 400 });
+    }
 
-    const memories = readData();
-    const targetItem = memories.find(item => item.id === id);
+    // 1. Find the target record first to see if it has a physical cloud storage attachment link
+    const { data: targetMemory, error: fetchError } = await supabase
+      .from('memories')
+      .select('content')
+      .eq('id', id)
+      .eq('user_id', userId)
+      .single();
 
-    if (targetItem) {
+    if (fetchError) throw fetchError;
+
+    if (targetMemory?.content) {
+      // Parse out the storage file URL if it exists
       const imageRegex = /\[🖼️ Local Attachment:\s*([^\]]+)\]/;
-      const match = targetItem.content.match(imageRegex);
-      
-      if (match && match[1]) {
-        const fileUrl = match[1].trim();
-        if (fileUrl.startsWith('/uploads/')) {
-          const fileName = fileUrl.replace('/uploads/', '');
-          const absoluteDiskPath = path.join(uploadsDir, fileName);
+      const match = targetMemory.content.match(imageRegex);
+      const fileUrl = match ? match[1].trim() : null;
 
-          if (fs.existsSync(absoluteDiskPath)) {
-            fs.unlinkSync(absoluteDiskPath);
-          }
+      if (fileUrl && fileUrl.includes('/storage/v1/object/public/memories/')) {
+        // Extract the raw storage file path relative to the bucket root
+        // Format extracted: "user_id/filename.jpg"
+        const filePath = fileUrl.split('/public/memories/')[1];
+        
+        if (filePath) {
+          // Purge the physical binary asset out of the storage partition entirely
+          await supabase.storage.from('memories').remove([filePath]);
         }
       }
     }
 
-    const updatedMemories = memories.filter(item => item.id !== id);
-    writeData(updatedMemories);
+    // 2. Clear out the primary database catalog row index entry
+    const { error: dbError } = await supabase
+      .from('memories')
+      .delete()
+      .eq('id', id)
+      .eq('user_id', userId);
 
-    return NextResponse.json({ success: true });
-  } catch (err) {
-    console.error(err);
-    return NextResponse.json({ error: 'Failed to delete entry' }, { status: 500 });
+    if (dbError) throw dbError;
+
+    return NextResponse.json({ success: true, message: 'Vault text record and cloud asset successfully purged.' });
+
+  } catch (error) {
+    console.error('DELETE transaction failure endpoint trace:', error.message);
+    return NextResponse.json({ error: 'Internal Server Error processing database drop' }, { status: 500 });
   }
 }

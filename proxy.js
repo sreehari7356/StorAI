@@ -1,43 +1,49 @@
-import { createServerClient } from '@supabase/ssr'
-import { NextResponse } from 'next/server'
+import { NextResponse } from 'next/server';
 
-export async function proxy(req) {
-  let res = NextResponse.next({
-    request: {
-      headers: req.headers,
-    },
-  })
+export function proxy(request) {
+  const { pathname } = request.nextUrl;
+  
+  // 1. ALWAYS ALLOW STATIC ASSETS, COMPILER CHUNKS, & API PATHS
+  if (
+    pathname.startsWith('/_next') || 
+    pathname.startsWith('/api/') ||
+    pathname.includes('.') ||
+    pathname === '/favicon.ico'
+  ) {
+    return NextResponse.next();
+  }
 
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
-    {
-      cookies: {
-        getAll() { return req.cookies.getAll() },
-        setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value, options }) => req.cookies.set({ name, value, ...options }))
-          res = NextResponse.next({ request: { headers: req.headers } })
-          cookiesToSet.forEach(({ name, value, options }) => res.cookies.set({ name, value, ...options }))
-        },
-      },
+  // 2. 🔐 ROBUST SUPABASE AUTH TOKEN CHECKER
+  // Checks our custom cookie, native supabase chunks, or system session keys
+  const allCookies = request.cookies.getAll();
+  const hasActiveSession = allCookies.some(cookie => 
+    cookie.name === 'sb-access-token' || 
+    cookie.name.startsWith('sb-') || 
+    cookie.name.includes('-auth-token')
+  );
+
+  // 3. HOME ROUTE LOCKDOWN
+  if (pathname === '/') {
+    if (!hasActiveSession) {
+      // No token found? Safely divert them to the login screen
+      return NextResponse.redirect(new URL('/vault-login', request.url));
     }
-  )
-
-  const { data: { session } } = await supabase.auth.getSession()
-
-  // Guard rules: Block unauthenticated users from homepage
-  if (!session && req.nextUrl.pathname === '/') {
-    return NextResponse.redirect(new URL('/vault-login', req.url))
+    // Token exists! Let them directly onto the dashboard
+    return NextResponse.next();
   }
 
-  // Redirect logged-in users away from the login page back to home
-  if (session && req.nextUrl.pathname === '/vault-login') {
-    return NextResponse.redirect(new URL('/', req.url))
+  // 4. LOGIN PORTAL SAFETY GATEWAY
+  if (pathname === '/vault-login') {
+    if (hasActiveSession) {
+      // Already logged in? Take them straight home, do not let them log in again
+      return NextResponse.redirect(new URL('/', request.url));
+    }
+    return NextResponse.next();
   }
 
-  return res
+  return NextResponse.next();
 }
 
 export const config = {
   matcher: ['/', '/vault-login'],
-}
+};

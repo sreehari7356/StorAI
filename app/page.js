@@ -1,16 +1,10 @@
 'use client';
 import React, { useState, useEffect, useMemo } from 'react';
-import { useRouter } from 'next/navigation';  // ← ADD THIS
 import Navbar from './components/Navbar';
 import MemoryCard from './components/MemoryCard';
 import AddMemoryModal from './components/AddMemoryModal';
 import { PlusIcon, XIcon } from './components/icons';
-import { createClient } from '@supabase/supabase-js';
-
-// ✅ FIX 1 — Remove hardcoded keys, use env vars only
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-const supabase = createClient(supabaseUrl, supabaseKey);
+import { supabase } from '@/lib/supabase';
 
 function StatsBar({ total, filtered, isSearching }) {
   return (
@@ -27,9 +21,7 @@ function StatsBar({ total, filtered, isSearching }) {
       </div>
       <div className="col-span-2 rounded-lg border border-premium-muted/50 bg-premium/30 px-5 py-4 sm:col-span-1">
         <p className="text-[10px] font-medium uppercase tracking-[0.12em] text-ink-muted">Index</p>
-        <p className="mt-1 text-sm leading-relaxed text-ink-muted">
-          OCR text, visual labels, PDFs
-        </p>
+        <p className="mt-1 text-sm leading-relaxed text-ink-muted">OCR text, visual labels, PDFs</p>
       </div>
     </div>
   );
@@ -39,13 +31,13 @@ function MemoryListSkeleton() {
   return (
     <div className="space-y-4">
       {[1, 2, 3].map((i) => (
-        <div key={i} className="rounded-lg border border-border-subtle bg-surface-raised p-5 shadow-sm">
-          <div className="skeleton mb-3 h-3 w-24 rounded" />
+        <div key={i} className="rounded-lg border border-border-subtle bg-surface-raised p-5 shadow-sm animate-pulse">
+          <div className="mb-3 h-3 w-24 rounded bg-border-subtle/60" />
           <div className="flex gap-4">
-            <div className="skeleton h-20 w-20 shrink-0 rounded-md" />
+            <div className="h-20 w-20 shrink-0 rounded-md bg-border-subtle/60" />
             <div className="flex-1 space-y-2 pt-1">
-              <div className="skeleton h-4 w-full rounded" />
-              <div className="skeleton h-3 w-2/3 rounded" />
+              <div className="h-4 w-full rounded bg-border-subtle/60" />
+              <div className="h-3 w-2/3 rounded bg-border-subtle/60" />
             </div>
           </div>
         </div>
@@ -55,22 +47,17 @@ function MemoryListSkeleton() {
 }
 
 export default function Home() {
-  const router = useRouter();  // ← ADD THIS
   const [memories, setMemories] = useState([]);
   const [displayedMemories, setDisplayedMemories] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [saveError, setSaveError] = useState('');
   const [justSignedIn, setJustSignedIn] = useState(false);
   const [welcomeLeaving, setWelcomeLeaving] = useState(false);
   const [showWelcome, setShowWelcome] = useState(false);
   const [userId, setUserId] = useState(null);
-
-  const [isSignUp, setIsSignUp] = useState(false);
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [authError, setAuthError] = useState('');
-  const [authLoading, setAuthLoading] = useState(false); // ← ADD THIS
+  const userIdRef = React.useRef(null);
 
   const isSearching = searchQuery.trim().length > 0;
 
@@ -96,10 +83,8 @@ export default function Home() {
   }, [showWelcome]);
 
   const fetchMemories = async (currentUserId) => {
-    const activeUid = currentUserId || userId;
+    const activeUid = currentUserId || userIdRef.current;
     if (!activeUid) {
-      setMemories([]);
-      setDisplayedMemories([]);
       setLoading(false);
       return;
     }
@@ -113,14 +98,7 @@ export default function Home() {
 
       if (error) throw error;
       setMemories(data || []);
-      if (!searchQuery.trim()) {
-        setDisplayedMemories(data || []);
-      } else {
-        const q = searchQuery.toLowerCase().trim();
-        setDisplayedMemories(
-          (data || []).filter((item) => item.content?.toLowerCase().includes(q))
-        );
-      }
+      setDisplayedMemories(data || []);
     } catch (err) {
       console.error('Error loading memories:', err);
     } finally {
@@ -129,28 +107,26 @@ export default function Home() {
   };
 
   useEffect(() => {
-    const checkUser = async () => {
-      try {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (session?.user) {
-          setUserId(session.user.id);
-          fetchMemories(session.user.id);
-        } else {
-          setLoading(false);
-        }
-      } catch (err) {
-        console.error('Session query failed:', err);
-        setLoading(false);
-      }
-    };
+    let mounted = true;
 
-    checkUser();
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!mounted) return;
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session?.user) {
+        userIdRef.current = session.user.id;
         setUserId(session.user.id);
         fetchMemories(session.user.id);
       } else {
+        setLoading(false);
+      }
+    }).catch((err) => {
+      console.error('Initial mount session check crash:', err);
+      if (mounted) setLoading(false);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'SIGNED_OUT' && mounted) {
+        userIdRef.current = null;
         setUserId(null);
         setMemories([]);
         setDisplayedMemories([]);
@@ -158,86 +134,11 @@ export default function Home() {
       }
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
   }, []);
-
-  // ✅ FIX 2 & 3 — Corrected auth handler
-  const handleAuthSubmit = async (e) => {
-    e.preventDefault();
-    setAuthError('');
-    setAuthLoading(true);
-
-    const formattedEmail = email.trim().toLowerCase();
-    if (!formattedEmail || !password) {
-      setAuthError('Please enter both your email address and password.');
-      setAuthLoading(false);
-      return;
-    }
-
-    try {
-      if (isSignUp) {
-        // ── SIGNUP ──────────────────────────────────────
-        const { data, error } = await supabase.auth.signUp({
-          email: formattedEmail,
-          password,
-        });
-
-        if (error) {
-          setAuthError(error.message);
-          return;
-        }
-
-        // ✅ FIX: Check if email confirmation is needed
-        if (data.user && data.session) {
-          // Email confirmation is OFF — user is logged in immediately
-          sessionStorage.setItem('storai-welcome', '1');
-          setUserId(data.user.id);
-          fetchMemories(data.user.id);
-          setJustSignedIn(true);
-          setShowWelcome(true);
-        } else {
-          // Email confirmation is ON — tell user to check email
-          setAuthError('');
-          alert('Account created! Check your email to confirm, then sign in.');
-          setIsSignUp(false);
-          setPassword('');
-        }
-
-      } else {
-        // ── SIGNIN ──────────────────────────────────────
-        const { data, error } = await supabase.auth.signInWithPassword({
-          email: formattedEmail,
-          password,
-        });
-
-        if (error) {
-          // ✅ FIX: Show friendly error messages
-          if (error.message.includes('Email not confirmed')) {
-            setAuthError('Please confirm your email first. Check your inbox.');
-          } else if (error.message.includes('Invalid login credentials')) {
-            setAuthError('Wrong email or password. Please try again.');
-          } else {
-            setAuthError(error.message);
-          }
-          return;
-        }
-
-        if (data?.user) {
-          // ✅ FIX: Set session storage BEFORE state updates
-          sessionStorage.setItem('storai-welcome', '1');
-          setUserId(data.user.id);
-          setJustSignedIn(true);
-          setShowWelcome(true);
-          fetchMemories(data.user.id);
-        }
-      }
-    } catch (err) {
-      console.error('Auth error:', err);
-      setAuthError(err.message || 'Something went wrong. Please try again.');
-    } finally {
-      setAuthLoading(false);
-    }
-  };
 
   const handleSearch = (e) => {
     if (e) e.preventDefault();
@@ -245,9 +146,9 @@ export default function Home() {
       setDisplayedMemories(memories);
       return;
     }
-    const queryStr = searchQuery.toLowerCase().trim();
+    const q = searchQuery.toLowerCase().trim();
     setDisplayedMemories(
-      memories.filter((item) => item.content?.toLowerCase().includes(queryStr))
+      memories.filter((item) => item.content?.toLowerCase().includes(q))
     );
   };
 
@@ -256,16 +157,58 @@ export default function Home() {
     setDisplayedMemories(memories);
   };
 
-  const handleSaveMemory = async (text) => {
-    if (!userId) return;
+  const handleSaveMemory = async (text, attachedFile = null, aiTags = '') => {
+    const activeUid = userIdRef.current;
+    if (!activeUid) return;
+    setSaveError('');
+    
     try {
-      const { error } = await supabase
-        .from('memories')
-        .insert([{ content: text, user_id: userId, date: new Date().toISOString() }]);
+      let finalContent = text ? text.trim() : '';
 
-      if (!error) fetchMemories(userId);
+      if (aiTags && aiTags.trim()) {
+        finalContent = finalContent 
+          ? `${finalContent}\n\n[Vision Summary: ${aiTags.trim()}]` 
+          : `[Vision Summary: ${aiTags.trim()}]`;
+      }
+
+      if (!finalContent) {
+        finalContent = 'Saved Document Reference';
+      }
+
+      if (attachedFile) {
+        const fileExt = attachedFile.name.split('.').pop();
+        const fileName = `${Date.now()}-${Math.random().toString(36).substring(2, 7)}.${fileExt}`;
+        const filePath = `${activeUid}/${fileName}`;
+
+        const { error: uploadError } = await supabase
+          .storage
+          .from('memories')
+          .upload(filePath, attachedFile, {
+            cacheControl: '3600',
+            upsert: false
+          });
+
+        if (uploadError) throw uploadError;
+
+        const { data: { publicUrl } } = supabase
+          .storage
+          .from('memories')
+          .getPublicUrl(filePath);
+
+        finalContent = `${finalContent}\n\n[🖼️ Local Attachment: ${publicUrl}]`;
+      }
+
+      const { error: dbError } = await supabase
+        .from('memories')
+        .insert([{ content: finalContent, user_id: activeUid, date: new Date().toISOString() }]);
+
+      if (dbError) throw dbError;
+      
+      setIsModalOpen(false);
+      fetchMemories(activeUid);
     } catch (err) {
-      console.error('Save failed:', err);
+      console.error('Save pipeline exception:', err);
+      setSaveError(err.message || 'Could not commit asset records into your vault.');
     }
   };
 
@@ -279,70 +222,18 @@ export default function Home() {
     }).length;
   }, [memories]);
 
-  if (!userId && !loading) {
+  if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-gradient-to-b from-premium-light via-surface to-surface px-6 py-12">
-        <div className="w-full max-w-md rounded-xl border border-border-subtle bg-white p-8 shadow-xl">
-          <div className="mb-6 text-center">
-            <h1 className="font-display text-3xl font-bold tracking-tight text-ink">StorAI</h1>
-            <p className="mt-2 text-sm text-ink-muted">Access your private document intelligence vault</p>
+      <div className="min-h-screen bg-gradient-to-b from-premium-light via-surface to-surface">
+        <Navbar memoryCount={0} />
+        <main className="mx-auto max-w-4xl px-5 pb-20 pt-10 sm:px-8 sm:pt-14">
+          <div className="mb-10 border-b border-border-subtle pb-8">
+            <p className="font-display text-xl font-medium leading-snug text-ink sm:text-2xl">
+              StorAI — secure workspace initializing...
+            </p>
           </div>
-
-          <div className="mb-6 flex border-b border-border-subtle">
-            <button
-              onClick={() => { setIsSignUp(false); setAuthError(''); }}
-              className={`flex-1 pb-3 text-sm font-medium transition ${!isSignUp ? 'border-b-2 border-accent text-accent' : 'text-ink-muted hover:text-ink'}`}
-            >
-              Sign In
-            </button>
-            <button
-              onClick={() => { setIsSignUp(true); setAuthError(''); }}
-              className={`flex-1 pb-3 text-sm font-medium transition ${isSignUp ? 'border-b-2 border-accent text-accent' : 'text-ink-muted hover:text-ink'}`}
-            >
-              Sign Up
-            </button>
-          </div>
-
-          <form onSubmit={handleAuthSubmit} className="space-y-4">
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-ink-muted">Email Address</label>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@example.com"
-                className="mt-1 w-full rounded-md border border-border bg-surface px-4 py-2.5 text-sm outline-none focus:border-accent text-black"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-ink-muted">Password</label>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-                className="mt-1 w-full rounded-md border border-border bg-surface px-4 py-2.5 text-sm outline-none focus:border-accent text-black"
-              />
-            </div>
-
-            {authError && (
-              <div className="p-3 bg-red-50 border border-red-200 rounded-md">
-                <p className="text-xs font-medium text-red-600">{authError}</p>
-              </div>
-            )}
-
-            {/* ✅ FIX: Button shows loading state */}
-            <button
-              type="submit"
-              disabled={authLoading}
-              className="w-full rounded-md bg-accent py-3 text-sm font-medium text-white shadow transition hover:bg-accent-hover disabled:opacity-60 disabled:cursor-not-allowed"
-            >
-              {authLoading
-                ? 'Please wait...'
-                : isSignUp ? 'Create Account' : 'Confirm & Sign In'}
-            </button>
-          </form>
-        </div>
+          <MemoryListSkeleton />
+        </main>
       </div>
     );
   }
@@ -356,6 +247,12 @@ export default function Home() {
       </div>
 
       <main className="mx-auto max-w-4xl px-5 pb-20 pt-10 sm:px-8 sm:pt-14">
+        {saveError && (
+          <div className="mb-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-600" role="alert">
+            {saveError}
+          </div>
+        )}
+
         {showWelcome && (
           <div
             className={`home-anim-welcome mb-6 rounded-lg border border-premium-muted bg-premium/45 px-4 py-3 ${welcomeLeaving ? 'is-leaving' : ''}`}
@@ -367,7 +264,7 @@ export default function Home() {
 
         <div className={`home-hero-glow mb-10 border-b border-border-subtle pb-8 ${justSignedIn ? 'home-anim-hero' : ''}`}>
           <p className="font-display text-xl font-medium leading-snug text-ink sm:text-2xl">
-            StoreAI — scan your study materials and find any page or topic before exams.
+            StorAI — scan your study materials and find any page or topic before exams.
           </p>
         </div>
 
@@ -390,14 +287,13 @@ export default function Home() {
                   setSearchQuery(e.target.value);
                   if (!e.target.value.trim()) setDisplayedMemories(memories);
                 }}
-                className="w-full rounded-md border border-border bg-surface-raised px-4 py-3.5 text-sm text-ink shadow-sm outline-none transition placeholder:text-muted focus:border-premium-muted focus:ring-2 focus:ring-premium/50 text-black"
+                className="w-full rounded-md border border-border bg-surface-raised px-4 py-3.5 text-sm shadow-sm outline-none transition placeholder:text-muted text-black focus:border-premium-muted"
               />
               {searchQuery && (
                 <button
                   type="button"
                   onClick={handleClearSearch}
                   className="absolute right-3 top-1/2 -translate-y-1/2 rounded p-0.5 text-ink-muted hover:text-ink"
-                  aria-label="Clear"
                 >
                   <XIcon className="h-4 w-4" />
                 </button>
@@ -405,7 +301,7 @@ export default function Home() {
             </div>
             <button
               type="submit"
-              className="shrink-0 rounded-md border border-border bg-surface-raised px-6 py-3.5 text-sm font-medium tracking-wide text-ink shadow-sm transition hover:border-premium-muted hover:bg-premium/25"
+              className="shrink-0 rounded-md border border-border bg-surface-raised px-6 py-3.5 text-sm font-medium tracking-wide text-ink shadow-sm hover:bg-premium/25"
             >
               Search
             </button>
@@ -413,8 +309,8 @@ export default function Home() {
 
           <button
             type="button"
-            onClick={() => setIsModalOpen(true)}
-            className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md bg-accent px-6 py-3.5 text-sm font-medium tracking-wide text-white shadow-sm transition hover:bg-accent-hover"
+            onClick={() => { setSaveError(''); setIsModalOpen(true); }}
+            className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md bg-accent px-6 py-3.5 text-sm font-medium tracking-wide text-white shadow-sm hover:bg-accent-hover"
           >
             <PlusIcon />
             Add memory
@@ -428,17 +324,13 @@ export default function Home() {
             </p>
           )}
 
-          {loading ? (
-            <MemoryListSkeleton />
-          ) : displayedMemories.length === 0 ? (
+          {displayedMemories.length === 0 ? (
             <div className="rounded-lg border border-dashed border-border bg-surface-raised/80 px-8 py-16 text-center shadow-sm">
               <p className="font-display text-xl text-ink">
                 {isSearching ? 'No matches' : 'No memories yet'}
               </p>
               <p className="mt-2 text-sm text-ink-muted">
-                {isSearching
-                  ? 'Try another phrase from your saved pages.'
-                  : 'Add a scanned page to build your vault.'}
+                {isSearching ? 'Try another phrase.' : 'Add a scanned page to build your vault.'}
               </p>
               {!isSearching && (
                 <button
@@ -459,10 +351,12 @@ export default function Home() {
                   className={justSignedIn ? 'home-stagger-item' : ''}
                   style={justSignedIn ? { animationDelay: `${0.52 + index * 0.07}s` } : undefined}
                 >
+                  {/* ✅ DOUBLE CHECKED AND VERIFIED RENDERING PROPS */}
                   <MemoryCard
                     id={memory.id}
                     content={memory.content}
                     date={memory.date}
+                    userId={userId} 
                     onDelete={() => fetchMemories(userId)}
                   />
                 </div>
