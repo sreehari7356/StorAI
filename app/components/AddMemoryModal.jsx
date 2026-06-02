@@ -1,6 +1,7 @@
 'use client';
 import React, { useState, useRef, useEffect } from 'react';
 import { XIcon } from './icons';
+import { createWorker } from 'tesseract.js'; // 📄 Import the OCR engine
 
 export default function AddMemoryModal({ isOpen, onClose, onSave }) {
   const [text, setText] = useState('');
@@ -9,6 +10,10 @@ export default function AddMemoryModal({ isOpen, onClose, onSave }) {
   const [isSaving, setIsSaving] = useState(false);
   const [model, setModel] = useState(null);
   const [modelLoading, setModelLoading] = useState(false);
+  
+  // 🤖 New loading state specifically for the local OCR engine text scanning
+  const [isScanningText, setIsScanningText] = useState(false); 
+
   const fileInputRef = useRef(null);
   const hiddenImgRef = useRef(null);
 
@@ -51,12 +56,40 @@ export default function AddMemoryModal({ isOpen, onClose, onSave }) {
 
   if (!isOpen) return null;
 
-  const handleFileChange = (e) => {
+  // 🚀 Updated File Handler with Async English OCR Scanning
+  const handleFileChange = async (e) => {
     if (e.target.files && e.target.files[0]) {
       const selectedFile = e.target.files[0];
       setFile(selectedFile);
+      
       const previewUrl = URL.createObjectURL(selectedFile);
       setImagePreview(previewUrl);
+
+      // Trigger OCR scanning immediately if it's an image
+      if (selectedFile.type.startsWith('image/')) {
+        try {
+          setIsScanningText(true);
+          
+          // 1. Initialize the single worker instance for English
+          const worker = await createWorker('eng');
+          
+          // 2. Feed the local file directly to Tesseract
+          const { data: { text: extractedText } } = await worker.recognize(selectedFile);
+          
+          // 3. Close the worker channel to save desktop/mobile browser tab RAM
+          await worker.terminate();
+
+          if (extractedText && extractedText.trim().length > 0) {
+            // 4. Update the text state container so it populates into the textarea
+            setText(extractedText.trim());
+            console.log("📄 Tesseract OCR Extracted Text Successfully!");
+          }
+        } catch (ocrErr) {
+          console.error("OCR character text recognition failed:", ocrErr);
+        } finally {
+          setIsScanningText(false);
+        }
+      }
     }
   };
 
@@ -79,9 +112,9 @@ export default function AddMemoryModal({ isOpen, onClose, onSave }) {
     let detectedLabels = '';
 
     try {
-      if (file && file.type.startsWith('image/') && hiddenImgRef.current) {
+      if (file && file.type.startsWith('image/')) {
         const activeModel = model || window.mobilenetInstance;
-        if (activeModel) {
+        if (activeModel && hiddenImgRef.current) {
           try {
             const predictions = await activeModel.classify(hiddenImgRef.current);
             detectedLabels = predictions
@@ -129,16 +162,29 @@ export default function AddMemoryModal({ isOpen, onClose, onSave }) {
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label htmlFor="modal-content" className="mb-2 block text-xs font-medium uppercase tracking-wider text-ink-muted">
-              Document Text / Notes Description
-            </label>
+            <div className="flex justify-between items-center mb-2">
+              <label htmlFor="modal-content" className="block text-xs font-medium uppercase tracking-wider text-ink-muted">
+                Document Text / Notes Description
+              </label>
+              
+              {/* 📄 OCR Active Loading Scanner Banner Layout */}
+              {isScanningText && (
+                <span className="text-[10px] animate-pulse text-blue-600 font-medium font-mono bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
+                  ⚡ Reading Image Text Strings...
+                </span>
+              )}
+            </div>
+
             <textarea
               id="modal-content"
               rows={4}
               value={text}
               onChange={(e) => setText(e.target.value)}
-              placeholder="Enter descriptive metadata notes..."
-              className="w-full rounded-md border border-border bg-white px-4 py-3 text-sm text-black outline-none"
+              disabled={isScanningText}
+              placeholder={isScanningText ? "Processing image text..." : "Add descriptions here..."}
+              className={`w-full rounded-md border px-4 py-3 text-sm transition-all outline-none ${
+                isScanningText ? 'bg-gray-50 border-blue-300 text-gray-400 border-dashed animate-pulse' : 'bg-white border-border text-black'
+              }`}
               required={!file}
             />
           </div>
@@ -165,26 +211,26 @@ export default function AddMemoryModal({ isOpen, onClose, onSave }) {
                 type="file"
                 accept="image/*"
                 ref={fileInputRef}
+                disabled={isScanningText || isSaving}
                 onChange={handleFileChange}
-                className="w-full text-xs text-ink-muted file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-premium-light file:text-ink file:cursor-pointer"
+                className="w-full text-xs text-ink-muted file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-premium-light file:text-ink file:cursor-pointer disabled:opacity-50"
               />
               {file && (
                 <div className="w-full flex items-center justify-between mt-2 rounded bg-accent/10 px-3 py-1.5 text-xs text-accent font-medium">
                   <span className="truncate">📎 Attached: {file.name}</span>
-                  <button type="button" onClick={handleRemoveFile} className="text-ink-muted hover:text-danger font-bold text-sm">×</button>
+                  <button type="button" onClick={handleRemoveFile} disabled={isScanningText} className="text-ink-muted hover:text-danger font-bold text-sm disabled:opacity-40">×</button>
                 </div>
               )}
             </div>
           </div>
 
           <div className="flex justify-end gap-3 pt-2">
-            <button type="button" onClick={onClose} disabled={isSaving} className="rounded-md border border-border bg-white px-4 py-2.5 text-xs font-medium text-ink">
+            <button type="button" onClick={onClose} disabled={isSaving || isScanningText} className="rounded-md border border-border bg-white px-4 py-2.5 text-xs font-medium text-ink disabled:opacity-40">
               Cancel
             </button>
             <button
               type="submit"
-              // 🛑 DISABLED UNTIL AI IS FULLY READY FOR SCANNING
-              disabled={isSaving || modelLoading || (!text.trim() && !file)}
+              disabled={isSaving || modelLoading || isScanningText || (!text.trim() && !file)}
               className="rounded-md bg-[#2d4a5f] px-5 py-2.5 text-xs font-medium tracking-wide text-white shadow hover:bg-[#3a5f78] disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {isSaving ? 'Running AI Scan...' : 'Commit to Storage Vault'}
