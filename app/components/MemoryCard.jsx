@@ -20,20 +20,27 @@ export default function MemoryCard({ id, content = '', date, userId, onDelete })
   const isPdf = imageUrl?.toLowerCase().includes('.pdf');
   if (isPdf) imageUrl = null;
 
-  // ── 🧼 CLEAN PARSER ──
-  // Extracts ONLY the manual text description typed by the user, ignoring AI tags and image links
+  const previewSnippet = getMeaningfulOcrPreview(content);
+
+  // ── 🧼 ROBUST TEXT FILTER ENGINE ──
   const getCleanUserNotes = (rawContent) => {
     if (!rawContent) return '';
     return rawContent
-      .replace(/\[Vision Summary:[^\]]+\]/gi, '') // Strip TensorFlow tags
-      .replace(/\[AI Recognition:[^\]]+\]/gi, '') // Strip fallback AI tags
-      .replace(/\[🖼️ Local Attachment:[^\]]+\]/gi, '') // Strip image URL syntax wrappers
-      .replace(/(https?:\/\/[^\s\]]+)/g, '') // Strip raw URLs
+      .replace(/\[OCR Text:[\s\S]*?\]/gi, '')         // Clean explicit OCR wrappers
+      .replace(/\[Vision Summary:[^\]]+\]/gi, '')     // Clean MobileNet labels
+      .replace(/\[AI Recognition:[^\]]+\]/gi, '')     // Clean secondary AI descriptors
+      .replace(/\[🖼️ Local Attachment:[^\]]+\]/gi, '') // Clean asset URL identifiers
+      .replace(/(https?:\/\/[^\s\]]+)/g, '')         // Clean raw address nodes
       .trim();
   };
 
   const userNotes = getCleanUserNotes(content);
-  const previewSnippet = getMeaningfulOcrPreview(content);
+
+  // 🕵️‍♂️ IDENTIFY RAW AUTOMATED DUMPS: 
+  // If the notes match the raw snippet exactly or are longer than 120 characters without custom tags, flag it!
+  const isAutomatedTextDump = 
+    userNotes.length > 120 || 
+    (previewSnippet && userNotes.toLowerCase().includes(previewSnippet.toLowerCase().slice(0, 20)));
 
   // 🗑️ DIRECT CLIENT-SIDE DELETION
   const handleDelete = async () => {
@@ -63,7 +70,7 @@ export default function MemoryCard({ id, content = '', date, userId, onDelete })
   };
 
   return (
-    <article className="group rounded-lg border border-border-subtle bg-surface-raised p-5 shadow-sm transition hover:border-premium-muted hover:shadow-md">
+    <article className="group rounded-lg border border-border-subtle bg-surface-raised p-5 shadow-sm transition hover:border-premium-muted hover:shadow-md animate-fadeIn">
       <div className="mb-3 flex items-center justify-between gap-2">
         <time className="text-xs tracking-wide text-ink-muted">
           {date 
@@ -99,10 +106,10 @@ export default function MemoryCard({ id, content = '', date, userId, onDelete })
         </div>
       </div>
 
-      <div className="flex gap-4">
-        {/* 🖼️ RENDERS THE ACTUAL VISUAL RESULT IMAGE */}
+      <div className="flex gap-4 items-center">
+        {/* 🖼️ RENDERS VISUAL ASSET PREVIEW */}
         {imageUrl && !imgError ? (
-          <div className="h-20 w-20 shrink-0 overflow-hidden rounded-md border border-border-subtle bg-premium-light">
+          <div className="h-16 w-16 shrink-0 overflow-hidden rounded-md border border-border-subtle bg-premium-light">
             <img
               src={imageUrl}
               alt="Indexed asset snapshot"
@@ -111,23 +118,33 @@ export default function MemoryCard({ id, content = '', date, userId, onDelete })
             />
           </div>
         ) : isPdf ? (
-          <div className="flex h-20 w-20 shrink-0 flex-col items-center justify-center rounded-md border border-border bg-premium/40 text-accent font-bold text-[10px]">
+          <div className="flex h-16 w-16 shrink-0 flex-col items-center justify-center rounded-md border border-border bg-premium/40 text-accent font-bold text-[10px]">
             <span>PDF</span>
           </div>
         ) : (
-          <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-md border border-dashed border-border bg-premium-light/50">
-            <span className="text-[10px] font-medium uppercase tracking-wider text-ink-muted">Doc</span>
+          <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-md border border-dashed border-blue-200 bg-blue-50 text-blue-500 font-bold font-mono text-xs">
+            DOC
           </div>
         )}
 
-        <div className="min-w-0 flex-1 flex flex-col justify-center">
-          {/* 📝 DISPLAYS USER NOTES ONLY IF THEY TYPED SOMETHING */}
-          {userNotes ? (
+        {/* 📝 CONDITIONAL VIEW MATRIX BLOCK */}
+        <div className="min-w-0 flex-1">
+          {userNotes && !isAutomatedTextDump ? (
             <h3 className="text-[15px] font-medium leading-snug text-ink break-words">
               {userNotes}
             </h3>
           ) : (
-            <span className="text-xs italic text-ink-muted">Visual Vault Asset Reference</span>
+            <div>
+              <h4 className="text-sm font-medium text-gray-800">
+                Visual Vault Asset Reference
+              </h4>
+              <div className="flex items-center gap-1.5 mt-1">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 inline-block"></span>
+                <p className="text-xs text-emerald-600 font-medium">
+                  Text Indexed & Searchable
+                </p>
+              </div>
+            </div>
           )}
         </div>
       </div>
